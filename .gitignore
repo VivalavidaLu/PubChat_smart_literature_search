@@ -29,3 +29,14 @@ __pycache__/
 
 # embedding测试文件
 embedding_testing/
+
+# BYOUK local-only artifacts. Existing upstream tracked templates are unchanged.
+.env.*
+*.env.local
+local_extensions/backups/
+local_extensions/references/
+local_extensions/verification.json
+local_extensions/deployment_lock.json
+*.log
+*.pem
+*.key

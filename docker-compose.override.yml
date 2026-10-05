@@ -1,0 +1,64 @@
+# Local deployment settings; upstream docker-compose.yml remains unchanged.
+name: pubchat-local
+
+services:
+  aws-nginx:
+    container_name: pubchat-local-nginx
+    ports: !override
+      - "127.0.0.1:8000:80"
+    restart: unless-stopped
+    depends_on:
+      search-server:
+        condition: service_healthy
+
+  search-server:
+    container_name: pubchat-local-search-server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 15s
+
+  celery-worker:
+    image: wuyuxuan1037/pubchat-celery-worker@sha256:32d3956c821c4a80b275040e5434c2eb5ddbf1f44f30a7a4e074b1ca6ba85535
+    container_name: pubchat-local-celery-worker
+    restart: unless-stopped
+    volumes:
+      - ./local_extensions/worker:/app/local_byok:ro
+      - ./common_utils/byok_protocols.py:/app/common_utils/byok_protocols.py:ro
+    command: celery -A local_byok.byok_worker:celery_app worker --loglevel=info -Q search_queue --concurrency=4
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    container_name: pubchat-local-postgres
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  redis:
+    container_name: pubchat-local-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+networks:
+  pubchat_network:
+    name: pubchat-local-network

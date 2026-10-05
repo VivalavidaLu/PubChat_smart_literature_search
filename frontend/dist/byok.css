@@ -1,0 +1,28 @@
+/* Scoped extension styling: a restrained laboratory control panel. */
+#pubchat-byok{--byok-accent:#197c72; margin:0 0 24px;border:1px solid #8eaaa680;border-left:4px solid var(--byok-accent);border-radius:12px;background:var(--bg-secondary,transparent);color:inherit;font-family:inherit;overflow:hidden}
+#pubchat-byok summary{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 24px;cursor:pointer;list-style:none}
+#pubchat-byok summary::-webkit-details-marker{display:none}
+#pubchat-byok summary::after{content:'+';font-size:24px;color:var(--byok-accent)}
+#pubchat-byok[open] summary::after{content:'−'}
+#pubchat-byok .byok-title{font-family:Georgia,'Times New Roman',serif;font-size:25px;letter-spacing:.04em;font-weight:bold}
+#pubchat-byok .byok-title small{display:block;font-family:inherit;font-size:10px;letter-spacing:.13em;margin-top:5px;font-weight:normal}
+#pubchat-byok [data-mode]{font-size:12px;margin-left:auto}
+#pubchat-byok .byok-body{padding:0 24px 20px}
+#pubchat-byok p{font-size:13px;line-height:1.65;margin:12px 0}
+#pubchat-byok fieldset{border:1px solid #8eaaa650;border-radius:8px;padding:16px;margin:16px 0;min-width:0}
+#pubchat-byok legend{padding:0 8px;font-size:12px;font-weight:600;letter-spacing:.04em}
+#pubchat-byok .byok-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+#pubchat-byok .byok-field{display:flex;flex-direction:column;gap:7px;font-size:13px}
+#pubchat-byok input:not([type=checkbox]),#pubchat-byok select{width:100%;box-sizing:border-box;min-height:40px;border:1px solid #8eaaa680;border-radius:6px;padding:9px 11px;font:inherit;background:var(--bg-primary,transparent);color:inherit}
+#pubchat-byok option{color:#142e2b;background:#fff}
+#pubchat-byok .byok-check{display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;margin:12px 0}
+#pubchat-byok input[type=checkbox]{accent-color:var(--byok-accent);width:17px;height:17px}
+#pubchat-byok .byok-hint{opacity:.75;font-size:12px}
+#pubchat-byok .byok-warning,#pubchat-byok [data-error=true]{border-left:3px solid #bf7627;padding:10px 14px;background:#bf762712}
+#pubchat-byok .byok-actions{display:flex;flex-wrap:wrap;gap:10px}
+#pubchat-byok button{font:inherit;font-size:13px;padding:10px 14px;border-radius:6px;border:1px solid #8eaaa680;background:transparent;color:inherit;cursor:pointer}
+#pubchat-byok button[data-test]{background:var(--byok-accent);border-color:var(--byok-accent);color:#fff}
+#pubchat-byok :disabled{opacity:.5;cursor:not-allowed}
+#pubchat-byok :focus-visible{outline:2px solid var(--byok-accent);outline-offset:3px}
+#pubchat-byok [data-status]:empty{display:none}
+@media(max-width:640px){#pubchat-byok .byok-grid{grid-template-columns:1fr}#pubchat-byok summary{padding:16px}#pubchat-byok .byok-body{padding:0 16px 16px}#pubchat-byok [data-mode]{max-width:130px}}

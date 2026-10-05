@@ -1,4 +1,12 @@
-# PubChat Smart Literature Search Project User Guide
+# PubChat BYOUK / BYOK — Bring Your Own URL & Key
+
+> **本 fork 的部署入口：[BYOUK 部署与使用指南](README_BYOUK.md)** · [配置与安全边界](local_extensions/BYOK_README.md) · [前端维护](local_extensions/BYOK_UI.md)。支持自定义 Base URL、API Key、主/快速模型 ID，以及 OpenAI-compatible / Gemini / Anthropic 协议；原 Gemini 预设保留。此扩展不代表原论文已验证任意替换模型的效果。
+>
+> **For this fork, use the [BYOUK setup guide](README_BYOUK.md).** The upstream instructions preserved below download the original Gemini-only application, not this extended fork. No real API keys, personal search results or deployment backups are included in the new commit. The worker image remains pinned to the tested digest.
+
+---
+
+# Upstream PubChat Smart Literature Search Project User Guide
 
 ## 🇬🇧 English Version
 

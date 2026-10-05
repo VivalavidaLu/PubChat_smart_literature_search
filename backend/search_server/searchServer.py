@@ -1,7 +1,9 @@
 import os
+import asyncio
 import json
 import logging
 import asyncpg
+from common_utils.byok_protocols import ConfigError, BYOKError, validate_config, split_secrets, test_connection as byok_test_connection
 from quart import Quart, request, jsonify
 from celery import Celery
 from common_utils.logger import setup_logging
@@ -37,14 +39,59 @@ async def health_check():
     logger.info("Health check requested.")
     return jsonify({"status": "literature-search service is running!"}), 200
 
+@app.before_serving
+async def ensure_byok_schema():
+    conn = await asyncpg.connect(**DB_CONFIG)
+    try:
+        await conn.execute('ALTER TABLE "userSchema".tasks ADD COLUMN IF NOT EXISTS byok_config jsonb')
+    finally:
+        await conn.close()
+
+
+def _safe_origin():
+    origin = request.headers.get('Origin')
+    return not origin or origin in {'http://localhost:8000', 'http://127.0.0.1:8000'}
+
+
+@app.route('/byok/test', methods=['POST'])
+async def test_byok_connection():
+    if not _safe_origin():
+        return jsonify({'success': False, 'message': {'zh': '只允许本机 PubChat 页面发起测试', 'en': 'Local PubChat origin required'}}), 403
+    data = await request.get_json()
+    try:
+        config = validate_config((data or {}).get('llm_config') or data)
+        result = await asyncio.wait_for(asyncio.to_thread(byok_test_connection, config), timeout=55)
+        return jsonify(result)
+    except (ConfigError, BYOKError) as exc:
+        return jsonify({'success': False, 'message': {'zh': str(exc), 'en': str(exc)}}), 400
+    except asyncio.TimeoutError:
+        return jsonify({'success': False, 'message': {'zh': '连接测试超时', 'en': 'Connection test timed out'}}), 504
+    except Exception:
+        logger.error('BYOK connection test failed; sensitive upstream detail omitted')
+        return jsonify({'success': False, 'message': {'zh': '连接测试失败，请检查协议和地址', 'en': 'Connection test failed'}}), 502
+
+
 @app.route('/task', methods=['POST'])
 async def create_search_task():
     logger.info("Search requested.")
     # user_id = g.user_id
     data = await request.get_json()
-    
+    if not _safe_origin():
+        return jsonify({'success': False, 'message': {'zh': '只允许本机 PubChat 页面提交任务', 'en': 'Local PubChat origin required'}}), 403
+    if not isinstance(data, dict):
+        return jsonify({'success': False, 'message': {'zh': '任务格式无效', 'en': 'Invalid task payload'}}), 400
+    is_byok = (data.get('llm_config') or {}).get('model') == 'byok'
+    safe_config = credentials = None
+    if is_byok:
+        try:
+            data['llm_config'] = validate_config(data['llm_config'])
+            safe_config, credentials = split_secrets(data['llm_config'])
+        except ConfigError as exc:
+            return jsonify({'success': False, 'message': {'zh': str(exc), 'en': str(exc)}}), 400
+
     conn = None
     redis_client = None
+    task_id = None
     try:
         conn = await asyncpg.connect(**DB_CONFIG)
         async with conn.transaction():
@@ -92,12 +139,12 @@ async def create_search_task():
                     output_language, user_query,
                     max_refinement_attempts, min_study_threshold,
                     time, author, first_author, last_author, affiliation, journal, custom,
-                    impact_factor, jcr_zone, cas_zone, model, api, pubmed_api
+                    impact_factor, jcr_zone, cas_zone, model, api, pubmed_api, byok_config
                 ) VALUES (
                     $1, $2, $3,
                     $4, $5,
                     $6, $7, $8, $9, $10, $11, $12,
-                    $13, $14, $15, $16, $17
+                    $13, $14, $15, $16, $17, $18::jsonb
                 ) RETURNING id
             """
             
@@ -122,24 +169,29 @@ async def create_search_task():
                 j_filters.get('cas_zone'),
                 # LLM Config
                 ai_filters.get('model'),
-                ai_filters.get('api'),
-                ai_filters.get('pubmed_api')
+                [] if is_byok else ai_filters.get('api'),
+                [] if is_byok else ai_filters.get('pubmed_api'),
+                json.dumps(safe_config) if safe_config is not None else None
             )
             
             # 4. Push to Celery
             # We send the task_id. The worker will likely need to fetch the task from DB or we pass parameters.
             # Passing just ID is cleaner if worker has DB access.
-            async_result = celery_app.send_task('search_workflow.run_search', args=[str(task_id)], queue='search_queue')
-            celery_task_id = async_result.id
 
             # Store celery_task_id in Redis with 30m expiration
             import redis.asyncio as redis
             redis_client = redis.Redis(host=os.getenv("REDIS_HOST", "redis"), port=6379, db=0, decode_responses=True)
-            await redis_client.setex(f"task:{str(task_id)}:celery_id", 1800, celery_task_id)
+            if is_byok:
+                # Keep BYOK credentials out of Postgres; worker deletes them after use.
+                await redis_client.setex(f"task:{task_id}:byok_keys", 86400, json.dumps(credentials))
             
             # Set initial status to Pending
             await redis_client.hset(f"task:{str(task_id)}:info", "status", "Pending")
-            await redis_client.expire(f"task:{str(task_id)}:info", 1800)
+            await redis_client.expire(f"task:{str(task_id)}:info", 86400)
+
+        # Enqueue only after DB commit, avoiding a task-not-found race.
+        async_result = await asyncio.to_thread(celery_app.send_task, 'search_workflow.run_search', args=[str(task_id)], queue='search_queue')
+        await redis_client.setex(f"task:{task_id}:celery_id", 86400, async_result.id)
 
         return jsonify({
             "success": True,
@@ -148,10 +200,16 @@ async def create_search_task():
         }), 200
 
     except Exception as e:
-        logger.error(f"Error creating search task: {e}")
+        logger.error("Error creating search task; sensitive details omitted")
+        if is_byok and task_id and redis_client:
+            try:
+                await redis_client.delete(f"task:{task_id}:byok_keys")
+                await redis_client.hset(f"task:{task_id}:info", "status", "Failed")
+            except Exception:
+                pass  # Redis TTL still bounds credential lifetime if unavailable.
         return jsonify({
             "success": False,
-            "message": {"zh": f"任务创建失败，原因为：{e}", "en": f"Failed to create task, reason: {e}"}
+            "message": {"zh": "任务创建失败，请检查服务状态", "en": "Failed to create task; check service status"}
         }), 500
     finally:
         if conn:
@@ -181,6 +239,7 @@ async def stop_search_task():
         # 1. Revoke the Celery task
         revoke_id = celery_task_id if celery_task_id else task_id
         celery_app.control.revoke(revoke_id, terminate=True)
+        await redis_client.delete(f"task:{task_id}:byok_keys")
         logger.info(f"Task {task_id} (Celery ID: {revoke_id}) revoked.")
         
         # # 2. Update User Status in DB and Task Status
